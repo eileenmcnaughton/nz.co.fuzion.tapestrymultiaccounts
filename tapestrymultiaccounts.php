@@ -131,9 +131,6 @@ function tapestrymultiaccounts_civicrm_alterSettingsFolders(&$metaDataFolders = 
  * @param obj $cookedParams
  */
 function tapestrymultiaccounts_civicrm_alterPaymentProcessorParams($paymentObj, &$rawParams, &$cookedParams) {
-  dpm($paymentObj);
-  dpm($rawParams);
-  dpm($cookedParams);
   // We need to avoid a loop so we don't run this code on the same invoiceID twice.
   static $invoices = array();
   if (in_array($cookedParams->txInvoiceReference, $invoices)) {
@@ -207,7 +204,9 @@ function tapestrymultiaccounts_civicrm_alterPaymentProcessorParams($paymentObj, 
     $originalProcessor = $paymentObj->getPaymentProcessor();
     $processor = array_merge($originalProcessor, tapestrymultiaccounts_get_equivalent_processor($originalProcessor['id']));
     $paymentObj->setPaymentProcessor($processor);
-    $cookedParams->EwayCustomerID($processor['subject']);
+    if (!is_array($cookedParams)) {
+      $cookedParams->EwayCustomerID($processor['subject']);
+    }
   }
   else {
     // No change required.
@@ -388,7 +387,7 @@ function tapestrymultiaccounts_get_lines_by_account_contact($rawParams) {
   $priceLines = array();
   $accountContactLines = array();
   foreach ($rawParams as $fieldName => $values) {
-    if (substr($fieldName, 0, 6) == 'price_') {
+    if (!empty($values) && substr($fieldName, 0, 6) == 'price_' && substr($fieldName, 0, 7) != 'price_s') {
       // This is a line_item parameter.
       $priceFieldID = substr($fieldName, 6);
       $priceLines[$priceFieldID] = civicrm_api3('price_field', 'getsingle', array(
@@ -396,16 +395,26 @@ function tapestrymultiaccounts_get_lines_by_account_contact($rawParams) {
         )
       );
 
-      foreach ($values as $priceFieldValueID => $value) {
-        $priceFieldValue = civicrm_api3(
-          'price_field_value',
-          'getsingle',
-          array('id' => $priceFieldValueID));
+      foreach ((array) $values as $priceFieldValueID => $value) {
+        if ($priceLines[$priceFieldID]['html_type'] == 'Text') {
+          $priceFieldValue = civicrm_api3(
+            'price_field_value',
+            'getsingle',
+            array('price_field_id' => $priceFieldID));
+          $priceFieldValueID = $priceFieldValue['id'];
+        }
+        else {
+          $priceFieldValue = civicrm_api3(
+            'price_field_value',
+            'getsingle',
+            array('id' => $priceFieldValueID));
+        }
         if ($priceLines[$priceFieldID]['name'] == 'contribution_amount'
           && !empty($priceFieldValue['financial_type_id'])
           && (civicrm_api3('price_set', 'getvalue', array(
-            'id' => $priceLines[$priceFieldID]['price_set_id'],
-            'return' => 'name')) == 'default_contribution_amount')
+              'id' => $priceLines[$priceFieldID]['price_set_id'],
+              'return' => 'name'
+            )) == 'default_contribution_amount')
         ) {
           $priceFieldValue['financial_type_id'] = $rawParams['financial_type_id'];
         }
@@ -414,8 +423,8 @@ function tapestrymultiaccounts_get_lines_by_account_contact($rawParams) {
         $accountsContactID = tapestrymultiaccounts_get_civicrm_financial_contact($priceFieldValue['financial_type_id']);
         $accountContactLines[$accountsContactID][$priceFieldID] = $priceLines[$priceFieldID];
 
-      }
 
+      }
     }
   }
   return $accountContactLines;
